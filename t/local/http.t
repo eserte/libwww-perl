@@ -18,6 +18,8 @@ require IO::Socket;  # make sure this work before we try to make a HTTP::Daemon
 my $D = shift || '';
 if ($D eq 'daemon') {
 
+    unlink "TIMEOUT_TRIGGER";
+
     require HTTP::Daemon;
 
     my $d = HTTP::Daemon->new(Timeout => 10);
@@ -50,7 +52,7 @@ else {
 }
 
 use Test::More;
-plan tests => 59;
+plan tests => 60;
 
 my $greeting = <DAEMON>;
 $greeting =~ /(<[^>]+>)/;
@@ -406,6 +408,34 @@ sub httpd_get_partial
     # Put max_size back how we found it. 
     $ua->max_size(undef);
     ok($res->as_string, qr/Client-Aborted: max_size/); # Client-Aborted is returned when max_size is given
+}
+
+
+#----------------------------------------------------------------
+print "Timeout check...\n";
+sub httpd_get_timeout
+{
+    my($c) = @_;
+    for (1..10) {
+	sleep 1;
+	last if -e "TIMEOUT_TRIGGER";
+    }
+}
+
+{
+    my $ua_with_timeout = LWP::UserAgent->new;
+    $ua_with_timeout->timeout(0.1);
+
+    local $SIG{ALRM} = sub { die "Alarm timeout" };
+    $req = new HTTP::Request GET => url("/timeout", $base);
+    alarm 5;
+    eval {
+	$res = $ua_with_timeout->request($req);
+    };
+    alarm 0;
+
+    unlike($res->status_line, qr{Alarm timeout});
+    open my $fh, ">", "TIMEOUT_TRIGGER" or die "Can't touch file: $!";
 }
 
 
